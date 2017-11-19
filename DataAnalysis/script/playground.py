@@ -71,8 +71,8 @@ from multiprocessing import Pool
 
 #############
 # 09/30/2017
-material = 'castiron_30'
-play_trial(material, 0, step=0.000001, subtract_min=True, normalization=False, jump=1)
+# material = 'neoprene_30'
+# play_trial(material, 0, step=0.000001, subtract_min=False, normalization=False, window=vdo_window, jump=1)
 # generate_ChebyshevDistance_matrix(material, 0, subtract_min=False, base_path=CHE_PATH)
 
 # chemat = load_pickle(os.path.join(CHE_PATH, material, 'trial0.pkl'))
@@ -83,5 +83,126 @@ play_trial(material, 0, step=0.000001, subtract_min=True, normalization=False, j
 # plt.colorbar()
 # plt.show()
 
+# for m in materials:
+#     # create_window_using_frame_after(m, 0, frame=950, path=WINDOW_PATH)
+#     generate_ChebyshevDistance_matrix(m, 0, subtract_min=False, base_path=CHE_PATH)
+
+# create_per_pixel_dataset(dist_50, 'dist_50_easy', normalization=True, subtract_min=False, num_pixels=500)
+
+# new_path = '../../Data/cropped'
+# def save_cropped_vdo():
+#     for m in dist_30:
+#         for trial in get_trials(m):
+#             timestamp, darr = load_trial_data(m, trial, False, normalization=False, use_min_pixel=False, window=vdo_window, t_limit=OBSERVATION_INTERVAL)
+#             newfile = os.path.join(new_path, m, 'trial%d'%trial)
+#             if not os.path.exists(newfile):
+#                 os.makedirs(newfile)
+#             np.save(os.path.join(newfile,'vdo'), darr)
+#             np.save(os.path.join(newfile,'timestamp'), timestamp)
 
 
+# save_cropped_vdo()
+
+def display_region_time_series(material, trial, color):
+    k_size = 17
+    kernel = np.ones((1,k_size,k_size)) / (k_size ** 2.)
+
+    darr = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial, 'vdo.npy'))
+    timestamp = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial, 'timestamp.npy'))
+
+    # darr = convolveim(darr, kernel, mode='constant')
+    # darr = darr[:, k_size//2:-(k_size//2), k_size//2:-(k_size//2)]
+
+    # _, h, w = darr.shape
+    # for i in range(h):
+    #     for j in range(w):
+    #         temp = darr[:,i,j].copy()
+    #         # temp = resampling(timestamp, temp, 200)
+    #         # # temp = normalize(temp)
+    #         temp = normalize2(temp)
+    #         plt.plot(timestamp,temp,color)
+    plt.plot(timestamp, darr.mean(axis=(1,2)), color, label=material)
+    # print timestamp.max()
+    # plt.title(material)
+    plt.xlabel('Time(s)')
+    plt.ylabel('Thermal Camera Reading')
+
+
+
+
+create_regional_dataset(dist_30, 'cropped_k15s4', normalization=True)
+
+# base_mats = ['neoprene', 'abs', 'wood', 'cardboard']
+# for base_mat in base_mats:
+#     plt.figure()
+#     display_region_time_series('%s_30'%base_mat, 1, 'r')
+#     display_region_time_series('%s_40'%base_mat, 1, 'g')
+#     display_region_time_series('%s_30_30'%base_mat, 1, 'b')
+#     # plt.ylim([7400,7770])
+#     plt.title('%s standardized'%base_mat)
+#     plt.legend()
+#     plt.savefig(base_mat)
+
+
+# plt.figure()
+# display_region_time_series('acrylic_30', 11, 'r')
+# # for i in range(100):
+# #     display_region_time_series('aluminum_30', i, 'r')
+# #     display_region_time_series('stainlesssteel_30', i, 'b')
+# # display_region_time_series('%s_40'%base_mat, 1, 'g')
+# # display_region_time_series('%s_30_30'%base_mat, 1, 'b')
+# # plt.ylim([7400,7770])
+# # plt.title('%s standardized'%base_mat)
+# # plt.legend()
+# plt.show()
+# # plt.savefig(base_mat)
+
+# model = load_trained_model('../TrainedModels/dist_30_split.hdf5')
+# for m in dist_30:
+#     labels = []
+#     for i in range(100):
+#         label = classify_regions(m, i, model, dist_30)
+#         labels.append(label)
+#     print 'Current Material: ', m
+#     print Counter(labels)
+
+# for m in ['castiron_40', 'stainlesssteel_40', 'aluminum_40']:
+#     print "Material: ", m
+#     for i in range(4):
+#         classify_regions(m, i, model, dist_40)
+# # for m in agl_30:
+# #     for trial in range(3):
+# #         classify_regions(m, trial, model, agl_30)
+
+# def show_region(material, trial_num):
+#     darr = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'vdo.npy'))
+#     timestamp = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'timestamp.npy'))
+
+#     _, h, w = darr.shape
+#     for i in range(h):
+#         for j in range(w):
+#             plt.plot(timestamp, darr[:,i,j])
+#     # plt.ylim([7400, 7770])
+#     plt.title(material)
+#     plt.show()
+
+
+# for m in dist_30:
+#     plt.figure()
+#     for i in range(10):
+#         display_region_time_series(m, i)
+#     plt.title(m)
+#     plt.savefig(m)
+
+# for i in range(10):
+#     display_region_time_series('aluminum_30', i)
+# plt.show()
+
+
+# for m in dist_30:
+#     knn_classify_regions(m, 66, 0)
+# for m in dist_40:
+#     knn_classify_regions(m, 66, 0)
+# for m in agl_30:
+#     for trial in range(3):
+#         knn_classify_regions(m, trial, 0)

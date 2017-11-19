@@ -61,6 +61,7 @@ def top_che_pixels_plot(material, trial_num, normalization=True, subtract_min=Fa
     pixels = []
     for i in range(lHeight):
         for j in range(lWidth):
+
             che = darr[:,i,j].max()-darr[:,i,j].min()
             pixels.append((che, i, j))
             disp_to_term("Pixel (%d,%d) with variance %.2f           " % (i,j,che))
@@ -82,6 +83,8 @@ def top_che_pixels_plot(material, trial_num, normalization=True, subtract_min=Fa
 
         plt.plot(timestamp, temp, linewidth=0.2)
         plt.title('%s %d'%(material, trial_num))
+
+    # plt.ylim((7420,7520))
 
     print "Average DTWDist: ", np.mean(dist_list)
     print '\nDone'
@@ -246,35 +249,35 @@ def average_dtwDist(material, trial_num, top_num=500):
 #             newf.write(news)
 
 
-newDATA_PATH = '../../Data/data'
-for material in materials:
-    for t in get_trials(material):
-        fs = get_trial_files(material, t)
+# newDATA_PATH = '../../Data/data2'
+# for material in ['noise']:
+#     for t in get_trials(material):
+#         fs = get_trial_files(material, t)
 
-        newpath = os.path.join(newDATA_PATH, material, 'trial%d'%t)
-        if not os.path.exists(newpath):
-            os.makedirs(newpath)
+#         newpath = os.path.join(newDATA_PATH, material, 'trial%d'%t)
+#         if not os.path.exists(newpath):
+#             os.makedirs(newpath)
 
-        for filename in fs:
-            newfilepath = os.path.join(newpath, filename.split('/')[-1])
-            disp_to_term(newfilepath + '             ')
+#         for filename in fs:
+#             newfilepath = os.path.join(newpath, filename.split('/')[-1])
+#             disp_to_term(newfilepath + '             ')
 
-            with open(filename, 'rb') as f:
-                ba = bytearray(f.read())
-                news = bytearray()
-                for i, c in enumerate(ba):
-                    if (i/2)%2==0:
-                        news.append(c)
+#             with open(filename, 'rb') as f:
+#                 ba = bytearray(f.read())
+#                 news = bytearray()
+#                 for i, c in enumerate(ba):
+#                     if (i/2)%2==0:
+#                         news.append(c)
 
-                with open(newfilepath, 'wb') as newf:
-                    newf.write(news)
+#                 with open(newfilepath, 'wb') as newf:
+#                     newf.write(news)
 
-            # ground,_ = extract_binary(filename)
-            # t,_ = extract_binary_2(newfilepath)
+#             # ground,_ = extract_binary(filename)
+#             # t,_ = extract_binary_2(newfilepath)
 
-            # if not np.equal(ground, t):
-            #     print "\n\n\n!!!!!!!!!!!"
-            #     time.sleep(20)
+#             # if not np.equal(ground, t):
+#             #     print "\n\n\n!!!!!!!!!!!"
+#             #     time.sleep(20)
 
 # create_per_pixel_dataset(materials, 'hard', normalization=True, subtract_min=False, num_pixels=500)
 
@@ -286,17 +289,54 @@ for material in materials:
 
 
 
+# for m in ['abs_30','abs_50']:
+#     top_che_pixels_plot(m, 0, normalization=False, subtract_min=False, num_pixels=500, save_img_path=FIG_PATH)
 
-
-
-
-
+# model = load_trained_model('../TrainedModels/vardist_50_easy.hdf5')
+# # render_trial('neoprene_40', 0, model, FCN_PATH)
+# for cc in classes:
+#     print(cc+'_50:')
+#     classify_video(cc+'_50', 0, model, num_pixels=250)
+# for cc in classes:
+#     print(cc+'_40:')
+#     classify_video(cc+'_40', 0, model, num_pixels=250)
+# # classify_video('neoprene_40', 0, model, num_pixels=250)
+# # classify_video('neoprene_50', 0, model, num_pixels=250)
 
 
 ######################
 # 09/30/2017
 
+# # top_che_pixels_plot('noise', 0, normalization=False, subtract_min=False, num_pixels=10000, save_img_path=None)
 
+# def get_rand_function(num, numiter=2):
+#     res = np.random.randn(num)
+#     for _ in range(numiter):
+#         res -= res.mean()
+#         res /= res.std()
+#         res = np.cumsum(res)
+#         # plt.plot(res)
+#         # plt.show()
+#     res -= res.min()
+#     res /= res.max()
+#     return res * np.random.randint(300)
+
+# for i in range(10):
+#     a = get_rand_function(300)
+#     plt.plot(a)
+#     plt.show()
+
+def fit_model(material, trial_num):
+    darr = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'vdo.npy'))
+    timestamp = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'timestamp.npy'))
+
+    _, h, w = darr.shape
+    for i in range(h):
+        for j in range(w):
+            plt.plot(timestamp, darr[:,i,j])
+    plt.ylim([7400, 7770])
+    plt.title(material)
+    plt.show()
 
 
 sys.exit(0)

@@ -5,6 +5,8 @@ from constants import *
 import pickle as pk
 import array
 import csv
+from collections import Counter
+from itertools import product
 
 import os
 import sys
@@ -16,6 +18,9 @@ import matplotlib.path as mpltPath
 import time
 from scipy.signal import savgol_filter, lfilter, butter
 from scipy.interpolate import interp1d
+from scipy.ndimage.filters import convolve as convolveim
+
+import scipy.stats as st
 
 import rpy2
 import rpy2.robjects.numpy2ri as rpyn
@@ -30,6 +35,7 @@ import keras
 from keras.models import Model
 from keras.utils import np_utils
 
+import itertools
 
 
 ############################################################
@@ -93,6 +99,14 @@ def normalize(data):
         return np.zeros_like(temp)
     temp -= np.min(temp)
     temp /= np.max(temp)
+    return temp
+
+def normalize2(data):
+    temp = data.copy()
+    if len(set(temp)) <= 1:
+        return np.zeros_like(temp)
+    temp -= np.mean(temp)
+    temp /= np.std(temp)
     return temp
 
 def butter_lowpass(cutoff, fs, order=5):
@@ -194,6 +208,29 @@ def normalized_DTW_score(timestamps, query):
 
     return DTWDist(query, template)
 
+def gkern(kernlen, nsig):
+    """Returns a 2D Gaussian kernel array."""
+
+    interval = (2*nsig+1.)/(kernlen)
+    x = np.linspace(-nsig-interval/2., nsig+interval/2., kernlen+1)
+    kern1d = np.diff(st.norm.cdf(x))
+    kernel_raw = np.sqrt(np.outer(kern1d, kern1d))
+    kernel = kernel_raw/kernel_raw.sum()
+    kernel = np.expand_dims(kernel, axis=0)
+    return kernel
+
+def conv(darr, k_size, stride, gaussian=False, sigma=None):
+    if gaussian:
+        kernel = gkern(k_size, sigma)
+    else:
+        kernel = np.ones((1,k_size,k_size)) / (k_size ** 2.)
+    kstart = int(np.floor((k_size-1)/2.))
+    kend = -int(np.ceil((k_size-1)/2.))
+
+    darr = convolveim(darr, kernel, mode='constant')
+    darr = darr[:, kstart:kend:stride, kstart:kend:stride]
+    return darr
+
 
 ############################################################
 ### Thermal Camera Data
@@ -232,24 +269,24 @@ def get_trial_files(material, trial_num):
 
     return files
 
-def load_trial_data(material, trial_num, subtract_min, normalization=False, use_min_pixel=False, t_limit=OBSERVATION_INTERVAL):
+def load_trial_data(material, trial_num, subtract_min, normalization=False, use_min_pixel=False, window=None, t_limit=OBSERVATION_INTERVAL):
     files = get_trial_files(material, trial_num)
 
     print "Creating buffer"
-    timestamp = [0.]
-    darr = [np.zeros((lHeight,lWidth))]
+    timestamp = []
+    darr = []
     for i,f in enumerate(files):
         disp_to_term("Loading files %d     " % i)
         t, img = extract_binary(f)
-        if t == 0:
-            darr = []
-            darr.append(img)
-        else:
-            timestamp.append(t)
-            darr.append(img)
+        timestamp.append(t)
+        darr.append(img)
         if t > t_limit * 1000.:
             break
     print "\nDone"
+
+    if 0. not in timestamp:
+        timestamp = [0.] + timestamp
+        darr = [darr[0]] + darr
 
     timestamp = np.array(timestamp).astype(float)
     timestamp /= 1000.
@@ -275,11 +312,16 @@ def load_trial_data(material, trial_num, subtract_min, normalization=False, use_
             max_pixel = np.max(darr)
             darr /= max_pixel
 
+    if window is not None:
+        ylow, yhigh, xlow, xhigh = window
+        darr = darr[:, ylow:yhigh, xlow:xhigh]
+
     # minval = np.min(darr)
     # maxval = np.max(darr)
     # print "Load Complete! Min: %.2f; Max: %.2f" % (minval, maxval)
 
     return timestamp, darr
+
 
 def extract_binary(filename):
     arr = array.array('H')
@@ -299,11 +341,15 @@ def extract_trial(material, trial_num):
 
     save_pickle({'time':times, 'data':imgs}, os.path.join(path, 'cam.pkl'))
 
-def play_trial(material, trial_num, step=0.000001, subtract_min=True, normalization=True, jump=5):
+def play_trial(material, trial_num, step=0.000001, subtract_min=True, normalization=True, window=None, jump=5):
 
-    timestamp, darr = load_trial_data(material, trial_num, subtract_min, normalization)
+    timestamp, darr = load_trial_data(material, trial_num, subtract_min, normalization, window=window)
     minval = np.min(darr)
     maxval = np.max(darr)
+
+    # ylow, yhigh, xlow, xhigh = vdo_window
+    # darr[:,ylow,xlow] = 6000
+    # darr[:,yhigh,xhigh] = 6000
 
     plt.ion()
     plt.imshow(darr[0], clim=[minval, maxval])
@@ -626,14 +672,16 @@ def generate_ChebyshevDistance_matrix(material, trial_num, subtract_min=False, b
         os.makedirs(savepath)
     savefile = os.path.join(savepath, 'trial%d.pkl'%(trial_num))
 
-    result = np.zeros((256,324))
+    result = darr.max(axis=0) - darr.min(axis=0)
 
-    for i in range(lHeight):
-        for j in range(lWidth):
-            cheb = np.max(darr[:,i,j]) - np.min(darr[:,i,j])
+    # result = np.zeros((256,324))
 
-            result[i][j] = cheb
-            disp_to_term("Pixel (%d,%d) with var %.2E          " % (i,j,cheb))
+    # for i in range(lHeight):
+    #     for j in range(lWidth):
+    #         cheb = np.max(darr[:,i,j]) - np.min(darr[:,i,j])
+
+    #         result[i][j] = cheb
+    #         disp_to_term("Pixel (%d,%d) with var %.2E          " % (i,j,cheb))
 
     save_pickle(result, savefile)
     print '\nDone'
@@ -726,7 +774,7 @@ def create_per_pixel_dataset(materials, base_name, normalization=True, subtract_
             print "Done"
 
             np.random.shuffle(pixels)
-            training, test = pixels[:num_pixels/2], pixels[num_pixels/2:]
+            training, test = pixels[:num_pixels*3/4], pixels[num_pixels*3/4:]
 
             with open('%s_train.csv'%base_name, 'ab') as csvfile:
                 writer = csv.writer(csvfile)
@@ -735,8 +783,8 @@ def create_per_pixel_dataset(materials, base_name, normalization=True, subtract_
                     temp = darr[:,i,j]
                     if normalization:
                         temp = normalize(temp)
-                    temp = resampling(timestamp, temp, 100)
-                    writer.writerow([materials.index(material)] + temp.tolist())
+                    temp = resampling(timestamp, temp, NUM_OBSERVATIONS)
+                    writer.writerow([classes.index(material.split('_')[0])] + temp.tolist())
 
             with open('%s_test.csv'%base_name, 'ab') as csvfile:
                 writer = csv.writer(csvfile)
@@ -745,8 +793,8 @@ def create_per_pixel_dataset(materials, base_name, normalization=True, subtract_
                     temp = darr[:,i,j]
                     if normalization:
                         temp = normalize(temp)
-                    temp = resampling(timestamp, temp, 100)
-                    writer.writerow([materials.index(material)] + temp.tolist())
+                    temp = resampling(timestamp, temp, NUM_OBSERVATIONS)
+                    writer.writerow([classes.index(material.split('_')[0])] + temp.tolist())
 
             print '\nDone'
 
@@ -870,6 +918,66 @@ def create_informative_dataset(materials, base_name, normalization=True, subtrac
                     writer.writerow([0 if binary else len(materials)] + temp.tolist())
 
             print '\nDone'
+
+
+
+
+
+def create_regional_dataset(materials, base_name, normalization=False):
+
+    for material in materials:
+        # trials = np.array(get_trials(material))
+        # np.random.shuffle(trials)
+        # train, test = np.split(trials, 2)
+        train = range(50)
+        test = range(50,100)
+
+        for trial_num in train:
+            print "Processing: %s, trial%d, train" % (material, trial_num)
+
+            darr = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'vdo.npy'))
+            timestamp = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'timestamp.npy'))
+
+            darr = conv(darr, 15, 4, True, 0.125)
+
+            _, h, w = darr.shape
+
+            with open('%s_train.csv'%base_name, 'ab') as csvfile:
+                writer = csv.writer(csvfile)
+
+                for i in range(h):
+                    for j in range(w):
+                        temp = darr[:,i,j]
+                        temp = resampling(timestamp, temp, 200)
+                        if normalization:
+                            temp = normalize2(temp)
+                        writer.writerow([materials.index(material)] + temp.tolist())
+
+        for trial_num in test:
+            print "Processing: %s, trial%d, test" % (material, trial_num)
+
+            darr = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'vdo.npy'))
+            timestamp = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'timestamp.npy'))
+
+            darr = conv(darr, 15, 4, True, 0.125)
+
+            _, h, w = darr.shape
+
+            with open('%s_test.csv'%base_name, 'ab') as csvfile:
+                writer = csv.writer(csvfile)
+
+                for i in range(h):
+                    for j in range(w):
+                        temp = darr[:,i,j]
+                        temp = resampling(timestamp, temp, 200)
+                        if normalization:
+                            temp = normalize2(temp)
+                        writer.writerow([materials.index(material)] + temp.tolist())
+
+
+        print '\nDone'
+
+
 
 # # Extract Informative Pixels from difficult materials
 # def create_dataset_difficult(material, trial_num, normalization=True, subtract_min=False, num_pixels=1000, heating_time=1.0, euclidean=False, downsampling=500):
@@ -1039,6 +1147,8 @@ def load_trained_model(weights_path):
     model.load_weights(weights_path)
     return model
 
+
+
 def create_feature_extractor():
     trained_model_layers = load_trained_model().layers
 
@@ -1077,8 +1187,9 @@ def render_trial(material, trial_num, model, base_path):
 
     darr -= np.min(darr, axis=0)
     darr /= np.max(darr, axis=0)
-    darr_mean = 0.651967591003
-    darr_std = 0.306874855586
+
+    darr_mean = 0.562614819045
+    darr_std = 0.214789864592
     darr = (darr - darr_mean)/(darr_std)
     X = darr.reshape((darr.shape[0],-1)).T
 
@@ -1095,9 +1206,9 @@ def render_trial(material, trial_num, model, base_path):
     ys = model.predict(X)
     print 'Result shape: ', ys.shape
 
-    # cs = np.argmax(ys, axis=1).reshape((lHeight, lWidth)) # FCN
-    # # cs = ys.astype('int').reshape((lHeight, lWidth)) # SVM
-    # print cs.shape
+    cs = np.argmax(ys, axis=1).reshape((lHeight, lWidth)) # FCN
+    # cs = ys.astype('int').reshape((lHeight, lWidth)) # SVM
+    print cs.shape
 
     # for i in range(lHeight):
     #     for j in range(lWidth):
@@ -1118,9 +1229,9 @@ def render_trial(material, trial_num, model, base_path):
 
     print '\n\nTime Elapsed: %.4f' % (time.time() - start)
 
-    # plt.matshow(cs)
-    # plt.colorbar()
-    # plt.show()
+    plt.matshow(cs)
+    plt.colorbar()
+    plt.show()
     save_pickle(ys, savefile)
     print '\nDone'
 
@@ -1142,15 +1253,16 @@ def classify_video(material, trial_num, model, num_pixels=250):
     X = []
     for var,ii,jj in pixels:
         temp = darr[:,ii,jj].copy()
-        temp = resampling(timestamp, temp, 100)
-        X.append(normalize(temp))
-        plt.plot(temp)
-    plt.show()
+        temp = normalize(temp)
+        temp = resampling(timestamp, temp, NUM_OBSERVATIONS)
+        X.append(temp)
+    #     plt.plot(temp)
+    # plt.show()
     X = np.array(X)
-    X_mean = 0.651967591003
-    X_std = 0.306874855586
-    # print X_mean, X_std
-    X = (X - X_mean)/(X_std)
+    # X_mean = 0.562614819045
+    # X_std = 0.214789864592
+    # # print X_mean, X_std
+    # X = (X - X_mean)/(X_std)
     X = X.reshape(X.shape + (1,1,))
     print X.shape
 
@@ -1159,8 +1271,86 @@ def classify_video(material, trial_num, model, num_pixels=250):
 
     cs = np.argmax(ys, axis=1).astype('int')
 
-    for i in cs:
-        print materials[i]
+    print('Voting Result: ', Counter([classes[i] for i in cs]))
+
+def classify_regions(material, trial_num, model, labels):
+    k_size = 17
+    kernel = np.ones((1,k_size,k_size)) / (k_size ** 2.)
+
+    # print "Processing: %s, trial%d" % (material, trial_num)
+
+    darr = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'vdo.npy'))
+    timestamp = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'timestamp.npy'))
+
+    darr = convolveim(darr, kernel, mode='constant')
+    darr = darr[:, k_size//2:-(k_size//2), k_size//2:-(k_size//2)]
+
+    _, h, w = darr.shape
+
+    X = []
+    for i in range(h):
+        for j in range(w):
+            temp = darr[:,i,j]
+            temp = resampling(timestamp, temp, 200)
+            temp = normalize2(temp)
+            X.append(temp)
+
+    X = np.array(X)
+    X = X.reshape(X.shape + (1,1,))
+    # print X.shape
+
+    ys = model.predict(X)
+    # print 'Result shape: ', ys.shape
+
+    cs = np.argmax(ys, axis=1).astype('int')
+
+    ctr = Counter([labels[i] for i in cs])
+    # print('Voting Result: ', ctr)
+    return ctr.most_common(1)[0][0]
+
+
+def knn_classify_regions(material, trial_num, sample_trial_num):
+
+    refs = []
+    for m in dist_30:
+        temp = np.load(os.path.join(DATA_PATH, m, 'trial%d'%sample_trial_num, 'vdo.npy'))
+        temp = temp.mean(axis=(1,2))
+        timestamp = np.load(os.path.join(DATA_PATH, m, 'trial%d'%sample_trial_num, 'timestamp.npy'))
+        temp = resampling(timestamp, temp, 200)
+        temp = normalize2(temp)
+        refs.append(temp)
+
+    k_size = 17
+    kernel = np.ones((1,k_size,k_size)) / (k_size ** 2.)
+
+    print "Processing: %s, trial%d" % (material, trial_num)
+
+    darr = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'vdo.npy'))
+    timestamp = np.load(os.path.join(DATA_PATH, material, 'trial%d'%trial_num, 'timestamp.npy'))
+
+    darr = convolveim(darr, kernel, mode='constant')
+    darr = darr[:, k_size//2:-(k_size//2), k_size//2:-(k_size//2)]
+
+    _, h, w = darr.shape
+
+    labels = []
+    for i in range(h):
+        for j in range(w):
+            temp = darr[:,i,j]
+            temp = resampling(timestamp, temp, 200)
+            temp = normalize2(temp)
+
+            label = None
+            err = float('inf')
+            for ind, ref in enumerate(refs):
+                mse = np.sum((ref - temp)**2)
+                if mse < err:
+                    label = classes[ind]
+                    err = mse
+            labels.append(label)
+
+    print('Voting Result: ', Counter(labels))
+
 
 def display_rendered_img(material, trial_num, base_path):
     savepath = os.path.join(base_path, material)
